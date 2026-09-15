@@ -1,0 +1,12 @@
+{
+  "_comment": "Optional <=10-word summaries shown by list_skills.py. Skills missing here are auto-summarized from SKILL.md.",
+  "academic-paper": "Multi-agent paper writing pipeline; LaTeX, DOCX, PDF",
+  "academic-paper-reviewer": "Five-seat peer-review panel for academic papers",
+  "find-skills": "Discover and install agent skills for a task",
+  "grant-proposal-assistant": "Write and review NIH, NSF, foundation grant proposals",
+  "latex-paper-en": "Fix, format, and polish existing English LaTeX papers",
+  "paper-audit": "Reviewer-style audit and submission gate for papers",
+  "research-paper-writer": "Write IEEE/ACM-style research papers from scratch",
+  "simple-english": "Rewrite text in plain Simplified Technical English",
+  "technical-writing": "House style for specs, design docs, READMEs, reports"
+}

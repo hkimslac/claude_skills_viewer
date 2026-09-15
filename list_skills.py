@@ -4,7 +4,8 @@
 Portable: Python 3.8+, standard library only, no third-party packages.
 
 Usage
-  python3 list_skills.py              # plain table on the terminal
+  python3 list_skills.py              # concise table: skill name + <=10-word summary
+  python3 list_skills.py --full       # expanded: full description + install path
   python3 list_skills.py --hook       # JSON for a Claude Code SessionStart hook
   python3 list_skills.py --install    # register the hook in ~/.claude/settings.json
   python3 list_skills.py --uninstall  # remove the hook again
@@ -37,7 +38,16 @@ import sys
 from pathlib import Path
 
 HOOK_TAG = "list_skills.py"
-DESC_WIDTH = 72
+SUMMARY_WORDS = 10          # concise column: at most this many words
+SUMMARY_WIDTH = 56          # ...and at most this many characters
+FULL_WIDTH = 78             # wrap width for --full descriptions
+SUMMARIES_FILE = Path.home() / ".claude" / "scripts" / "skill_summaries.json"
+
+# ANSI styling. Disable with --no-color or LIST_SKILLS_COLOR=0.
+GOLD = "\033[1;38;5;220m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
 
 
 # --------------------------------------------------------------------------- #
@@ -125,24 +135,80 @@ def shorten(text: str, width: int) -> str:
     return text if len(text) <= width else text[: width - 1].rstrip() + "…"
 
 
-def render_plain(skills: list, project_dir: Path | None) -> str:
+def load_summaries() -> dict:
+    """Optional hand-written one-liners: {"skill-name": "<=10 word summary"}."""
+    try:
+        data = json.loads(SUMMARIES_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+_LEAD_IN = re.compile(
+    r"^(use (this skill )?(when|for|to)\s+|this skill\s+|helps? (users? )?(to )?|"
+    r"(guides|creates?|provides?|runs?)\s+(the\s+)?)",
+    re.IGNORECASE,
+)
+
+
+def summarize(description: str, override: str | None = None) -> str:
+    """Return a <=SUMMARY_WORDS summary, preferring the hand-written override."""
+    text = " ".join((override or description).split())
+    if not override:
+        # First sentence only, minus boilerplate lead-ins and trailing parentheticals.
+        text = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
+        text = _LEAD_IN.sub("", text)
+        text = re.sub(r"\s*\([^)]*\)", "", text)
+        text = text.rstrip(".:;,")
+    words = text.split()
+    if len(words) > SUMMARY_WORDS:
+        text = " ".join(words[:SUMMARY_WORDS]).rstrip(".,;:") + "…"
+    if text:
+        text = text[0].upper() + text[1:]
+    return shorten(text, SUMMARY_WIDTH)
+
+
+def style(text: str, code: str, color: bool) -> str:
+    return f"{code}{text}{RESET}" if color else text
+
+
+def wrap(text: str, width: int, indent: str) -> list:
+    import textwrap
+    return textwrap.wrap(" ".join(text.split()), width=width,
+                         initial_indent=indent, subsequent_indent=indent) or [indent.rstrip()]
+
+
+def render_plain(skills: list, project_dir: Path | None, *, full: bool = False,
+                 color: bool = True) -> str:
     if not skills:
         return "No Claude Code skills installed."
+    summaries = load_summaries()
     name_w = max(len(s["name"]) for s in skills)
-    lines = [f"Installed skills ({len(skills)})"]
+    lines = [style(f"Installed skills ({len(skills)})", BOLD, color)]
     for source in ("user", "project"):
         group = [s for s in skills if s["source"] == source]
         if not group:
             continue
         label = "global" if source == "user" else f"project: {project_dir}"
-        lines.append(f"  [{label}]")
+        lines.append(style(f"  [{label}]", DIM, color))
         for s in group:
-            lines.append(f"    /{s['name']:<{name_w}}  {shorten(s['description'], DESC_WIDTH)}")
-    return "\n".join(lines)
+            name = style(f"{s['name']:<{name_w}}", GOLD, color)
+            if full:
+                lines.append(f"    {name}")
+                lines += wrap(s["description"] or "(no description)", FULL_WIDTH, "        ")
+                lines.append(style(f"        path: {s['path']}", DIM, color))
+                lines.append("")
+            else:
+                summary = summarize(s["description"], summaries.get(s["name"]))
+                lines.append(f"    {name}  {summary}")
+    if not full:
+        hint = f"  invoke skill <name>  ·  python3 {Path(__file__).name} --full  for descriptions + paths"
+        lines.append(style(hint, DIM, color))
+    return "\n".join(line.rstrip() for line in lines).rstrip()
 
 
-def render_hook(skills: list, project_dir: Path | None) -> dict:
-    return {"systemMessage": render_plain(skills, project_dir), "suppressOutput": True}
+def render_hook(skills: list, project_dir: Path | None, color: bool = True) -> dict:
+    return {"systemMessage": render_plain(skills, project_dir, color=color), "suppressOutput": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -344,7 +410,12 @@ def main(argv: list) -> int:
     mode.add_argument("--import", dest="import_file", type=Path, metavar="FILE",
                       help="install skills listed in an exported script")
     ap.add_argument("--project", type=Path, help="project directory to scan for .claude/skills")
+    ap.add_argument("--full", action="store_true",
+                    help="expanded view: full description and install path per skill")
+    ap.add_argument("--no-color", action="store_true", help="plain text, no ANSI colours")
     args = ap.parse_args(argv)
+    color = not args.no_color and os.environ.get("LIST_SKILLS_COLOR", "1") != "0" \
+        and os.environ.get("NO_COLOR") is None
 
     if args.install:
         install_hook()
@@ -380,11 +451,11 @@ def main(argv: list) -> int:
     skills = discover_skills(project_dir)
 
     if args.hook:
-        print(json.dumps(render_hook(skills, project_dir), ensure_ascii=False))
+        print(json.dumps(render_hook(skills, project_dir, color=color), ensure_ascii=False))
     elif args.json:
         print(json.dumps(skills, indent=2, ensure_ascii=False))
     else:
-        print(render_plain(skills, project_dir))
+        print(render_plain(skills, project_dir, full=args.full, color=color))
     return 0
 
 
