@@ -112,7 +112,28 @@ def discover_skills(project_dir: Path | None) -> list:
     skills += scan_dir(home / ".agents" / "skills", "user", seen)
     if project_dir:
         skills += scan_dir(project_dir / ".claude" / "skills", "project", seen)
+    skills += scan_plugins(seen)
     return skills
+
+
+def scan_plugins(seen: set) -> list:
+    """Skills shipped inside enabled plugins, named <plugin>:<skill>."""
+    try:
+        installed = json.loads((Path.home() / ".claude" / "plugins" /
+                                "installed_plugins.json").read_text(encoding="utf-8"))
+        enabled = load_settings(settings_path()).get("enabledPlugins", {})
+    except (OSError, ValueError, SystemExit):
+        return []
+    found = []
+    for key, installs in sorted(installed.get("plugins", {}).items()):
+        if not enabled.get(key) or not installs:
+            continue
+        plugin = key.split("@", 1)[0]
+        root = Path(installs[0].get("installPath", "")) / "skills"
+        for info in scan_dir(root, "plugin", seen):
+            info["name"] = f"{plugin}:{info['name']}"
+            found.append(info)
+    return found
 
 
 def read_hook_stdin() -> dict:
@@ -185,11 +206,11 @@ def render_plain(skills: list, project_dir: Path | None, *, full: bool = False,
     summaries = load_summaries()
     name_w = max(len(s["name"]) for s in skills)
     lines = [style(f"Installed skills ({len(skills)})", BOLD, color)]
-    for source in ("user", "project"):
+    for source in ("user", "project", "plugin"):
         group = [s for s in skills if s["source"] == source]
         if not group:
             continue
-        label = "global" if source == "user" else f"project: {project_dir}"
+        label = {"user": "global", "plugin": "plugins"}.get(source, f"project: {project_dir}")
         lines.append(style(f"  [{label}]", DIM, color))
         for s in group:
             name = style(f"{s['name']:<{name_w}}", GOLD, color)
@@ -346,7 +367,8 @@ def build_export(skills: list) -> str:
     if manual:
         lines += ["", "# Not exportable: no `npx skills` lock entry (installed by hand or via a plugin)."]
         lines += ["# Copy these directories yourself if you want them on the target machine:"]
-        lines += [f"#   {s['name']}  ({s['path']})" for s in manual]
+        home = str(Path.home())
+        lines += [f"#   {s['name']}  ({s['path'].replace(home, '~', 1)})" for s in manual]
     return "\n".join(lines) + "\n"
 
 

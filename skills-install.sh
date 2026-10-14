@@ -7,15 +7,15 @@
 set -u
 
 SKILLS=(
-  imbad0202/academic-research-skills@academic-paper
-  imbad0202/academic-research-skills@academic-paper-reviewer
-  vercel-labs/skills@find-skills
-  lyndonkl/claude@grant-proposal-assistant
-  bahayonghang/academic-writing-skills@latex-paper-en
-  bahayonghang/academic-writing-skills@paper-audit
-  ailabs-393/ai-labs-claude-skills@research-paper-writer
+  #imbad0202/academic-research-skills@academic-paper
+  #imbad0202/academic-research-skills@academic-paper-reviewer
+  #vercel-labs/skills@find-skills
+  #lyndonkl/claude@grant-proposal-assistant
+  #bahayonghang/academic-writing-skills@latex-paper-en
+  #bahayonghang/academic-writing-skills@paper-audit
+  #ailabs-393/ai-labs-claude-skills@research-paper-writer
   aminblg/simpleenglish@simple-english
-  riekelt/technical-writer@technical-writing
+  #riekelt/technical-writer@technical-writing
 )
 
 for s in "${SKILLS[@]}"; do
