@@ -17,6 +17,11 @@ Skill locations scanned
   ~/.claude/skills/<name>/SKILL.md         user (global) skills
   ~/.agents/skills/<name>/SKILL.md         `npx skills` store (deduped against above)
   <project>/.claude/skills/<name>/SKILL.md project skills (from hook cwd or $PWD)
+  <submodule>/{skills,.claude/skills}/<name>/SKILL.md
+                                           skills in the git submodules that the
+                                           project .gitmodules lists (recursive).
+                                           Claude Code loads one only if it is
+                                           linked into <project>/.claude/skills.
 
 Moving to another machine
   Machine A:  python3 list_skills.py --export skills-install.sh
@@ -112,8 +117,46 @@ def discover_skills(project_dir: Path | None) -> list:
     skills += scan_dir(home / ".agents" / "skills", "user", seen)
     if project_dir:
         skills += scan_dir(project_dir / ".claude" / "skills", "project", seen)
+        skills += scan_submodules(project_dir, seen)
     skills += scan_plugins(seen)
     return skills
+
+
+def git_root(start: Path) -> Path:
+    """Closest directory at or above start that holds .git, else start."""
+    start = start.resolve()
+    for d in (start, *start.parents):
+        if (d / ".git").exists():
+            return d
+    return start
+
+
+def submodule_paths(repo: Path, depth: int = 0) -> list:
+    """Checked-out submodule directories listed in repo/.gitmodules, recursively."""
+    try:
+        text = (repo / ".gitmodules").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    found = []
+    for rel in re.findall(r"^\s*path\s*=\s*(.+?)\s*$", text, re.MULTILINE):
+        sub = repo / rel
+        if sub.is_dir():
+            found.append(sub)
+            if depth < 4:
+                found += submodule_paths(sub, depth + 1)
+    return found
+
+
+def scan_submodules(project_dir: Path, seen: set) -> list:
+    """Skills shipped inside git submodules of the project."""
+    root = git_root(project_dir)
+    found = []
+    for sub in submodule_paths(root):
+        for skills_dir in (sub / "skills", sub / ".claude" / "skills"):
+            for info in scan_dir(skills_dir, "submodule", seen):
+                info["submodule"] = str(sub.relative_to(root))
+                found.append(info)
+    return found
 
 
 def scan_plugins(seen: set) -> list:
@@ -166,7 +209,8 @@ def load_summaries() -> dict:
 
 
 _LEAD_IN = re.compile(
-    r"^(use (this skill )?(when|for|to)\s+|this skill\s+|helps? (users? )?(to )?|"
+    r"^(use (this skill )?(whenever|when|for|to)\s+(the user (wants|needs|asks) to\s+)?|"
+    r"the user (wants|needs|asks) to\s+|this skill\s+|helps? (users? )?(to )?|"
     r"(guides|creates?|provides?|runs?)\s+(the\s+)?)",
     re.IGNORECASE,
 )
@@ -206,11 +250,13 @@ def render_plain(skills: list, project_dir: Path | None, *, full: bool = False,
     summaries = load_summaries()
     name_w = max(len(s["name"]) for s in skills)
     lines = [style(f"Installed skills ({len(skills)})", BOLD, color)]
-    for source in ("user", "project", "plugin"):
+    for source in ("user", "project", "submodule", "plugin"):
         group = [s for s in skills if s["source"] == source]
         if not group:
             continue
-        label = {"user": "global", "plugin": "plugins"}.get(source, f"project: {project_dir}")
+        label = {"user": "global", "plugin": "plugins",
+                 "submodule": "git submodules, not linked into .claude/skills"
+                 }.get(source, f"project: {project_dir}")
         lines.append(style(f"  [{label}]", DIM, color))
         for s in group:
             name = style(f"{s['name']:<{name_w}}", GOLD, color)

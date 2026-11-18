@@ -30,6 +30,12 @@ Below example will import the list of to-be-installed skills.
 
 
 Some things to keep in mind before using the script:
+- The script also lists the skills in the git submodules of the project. It reads
+  `.gitmodules` at the git root of the project directory, and it reads the submodules of
+  each submodule. In each submodule it scans `skills/<name>/SKILL.md` and
+  `.claude/skills/<name>/SKILL.md`. Claude Code loads a submodule skill only if a link to
+  it is in `<project>/.claude/skills/`. A linked skill is listed under the project, and an
+  unlinked skill is listed under "git submodules, not linked into .claude/skills".
 - The short summaries come from `~/.claude/scripts/skill_summaries.json`, a plain
   `{"skill-name": "summary"}` map you can edit by hand. A skill that is not in that file
   gets an automatic summary instead: the first sentence of its SKILL.md description, with
